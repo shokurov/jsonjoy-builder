@@ -1,7 +1,7 @@
 import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
 import { Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { Button } from "../../components/ui/button.tsx";
+import { useComponent } from "../../registry/SchemaBuilderRegistryContext.tsx";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,7 @@ export function InferSchemaDialog({
   onInfer,
   autoFocus = true,
 }: InferSchemaDialogProps) {
+  const Button = useComponent("Button");
   const t = useTranslation();
   const [jsonInput, setJsonInput] = useState("");
   const [error, setError] = useState<string | null>(null);

@@ -23,6 +23,7 @@ export interface ButtonProps {
   size?: "default" | "sm" | "lg" | "icon";
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
+  form?: string;
   onClick?: React.MouseEventHandler<HTMLButtonElement>;
 }
 
