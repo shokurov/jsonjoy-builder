@@ -28,7 +28,7 @@ export interface ButtonProps {
 
 /** @public */
 export interface InputProps {
-  value?: string;
+  value?: string | number | readonly string[];
   onChange?: React.ChangeEventHandler<HTMLInputElement>;
   onFocus?: React.FocusEventHandler<HTMLInputElement>;
   onBlur?: React.FocusEventHandler<HTMLInputElement>;
@@ -39,6 +39,10 @@ export interface InputProps {
   autoFocus?: boolean;
   required?: boolean;
   disabled?: boolean;
+  type?: string;
+  step?: string | number;
+  min?: string | number;
+  max?: string | number;
   "aria-invalid"?: boolean | "true" | "false";
   "aria-describedby"?: string;
 }

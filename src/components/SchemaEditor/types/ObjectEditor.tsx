@@ -13,7 +13,7 @@ import {
 } from "../../../lib/schemaEditor.ts";
 import type { NewField, ObjectJsonSchema } from "../../../types/jsonSchema.ts";
 import { asObjectSchema, isBooleanSchema } from "../../../types/jsonSchema.ts";
-import { ButtonToggle } from "../../ui/button-toggle.tsx";
+import { useComponent } from "../../../registry/SchemaBuilderRegistryContext.tsx";
 import AddFieldButton from "../AddFieldButton.tsx";
 import SchemaPropertyRows from "../SchemaPropertyRows.tsx";
 import type { TypeEditorProps } from "../TypeEditor.tsx";
@@ -29,6 +29,7 @@ const ObjectEditor: React.FC<TypeEditorProps> = ({
   readOnly = false,
 }) => {
   const t = useTranslation();
+  const ButtonToggle = useComponent("ButtonToggle");
 
   // Get object properties
   const properties = getSchemaProperties(schema);

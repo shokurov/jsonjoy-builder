@@ -1,6 +1,5 @@
 import { useId } from "react";
-import { Label } from "../../../components/ui/label.tsx";
-import { Switch } from "../../../components/ui/switch.tsx";
+import { useComponent } from "../../../registry/SchemaBuilderRegistryContext.tsx";
 import { useTranslation } from "../../../hooks/use-translation.ts";
 import type { ObjectJsonSchema } from "../../../types/jsonSchema.ts";
 import { withObjectSchema } from "../../../types/jsonSchema.ts";
@@ -15,6 +14,8 @@ const BooleanEditor: React.FC<TypeEditorProps> = ({
   readOnly = false,
 }) => {
   const t = useTranslation();
+  const Label = useComponent("Label");
+  const Switch = useComponent("Switch");
   const allowTrueId = useId();
   const allowFalseId = useId();
 

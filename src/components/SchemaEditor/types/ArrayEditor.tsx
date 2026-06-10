@@ -1,7 +1,5 @@
 import { useId, useMemo, useState } from "react";
-import { Input } from "../../../components/ui/input.tsx";
-import { Label } from "../../../components/ui/label.tsx";
-import { Switch } from "../../../components/ui/switch.tsx";
+import { useComponent } from "../../../registry/SchemaBuilderRegistryContext.tsx";
 import { useTranslation } from "../../../hooks/use-translation.ts";
 import { getArrayItemsSchema } from "../../../lib/schemaEditor.ts";
 import { cn } from "../../../lib/utils.ts";
@@ -30,6 +28,9 @@ const ArrayEditor: React.FC<TypeEditorProps> = ({
   depth = 0,
 }) => {
   const t = useTranslation();
+  const Input = useComponent("Input");
+  const Label = useComponent("Label");
+  const Switch = useComponent("Switch");
   const [minItems, setMinItems] = useState<number | undefined>(
     withObjectSchema(schema, (s) => s.minItems, undefined),
   );

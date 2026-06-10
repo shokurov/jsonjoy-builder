@@ -1,7 +1,6 @@
 import { X } from "lucide-react";
 import { useId, useMemo, useState } from "react";
-import { Input } from "../../../components/ui/input.tsx";
-import { Label } from "../../../components/ui/label.tsx";
+import { useComponent } from "../../../registry/SchemaBuilderRegistryContext.tsx";
 import { useTranslation } from "../../../hooks/use-translation.ts";
 import { cn } from "../../../lib/utils.ts";
 import type { ObjectJsonSchema } from "../../../types/jsonSchema.ts";
@@ -35,8 +34,10 @@ const NumberEditor: React.FC<NumberEditorProps> = ({
 }) => {
   const [enumValue, setEnumValue] = useState("");
   const t = useTranslation();
+    const Input = useComponent("Input");
+    const Label = useComponent("Label");
 
-  const maximumId = useId();
+    const maximumId = useId();
   const minimumId = useId();
   const exclusiveMinimumId = useId();
   const exclusiveMaximumId = useId();
