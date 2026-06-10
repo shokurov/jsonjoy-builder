@@ -33,6 +33,28 @@ export {
 export type { Translation } from "./i18n/translation-keys.ts";
 export type { JsonSchema } from "./types/jsonSchema.ts";
 export {
+  SchemaBuilderRegistryProvider,
+  useRegistry,
+  useComponent,
+  useSlot,
+  useSlotProps,
+  useValidators,
+  useWidgetRegistry,
+  useFieldRegistry,
+  mergeRegistry,
+} from "./registry/index.ts";
+export type {
+  SchemaBuilderRegistry,
+  SchemaBuilderComponents,
+  SchemaBuilderSlots,
+  ValidatorRegistry,
+  WidgetRegistry,
+  FieldRegistry,
+  ValidatorEditorProps,
+  ValidatorEditorComponent,
+  ValidatorDefinition,
+} from "./registry/index.ts";
+export {
   InferSchemaDialog,
   type InferSchemaDialogProps,
   SchemaBuilder,
