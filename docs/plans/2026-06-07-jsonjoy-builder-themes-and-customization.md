@@ -1,8 +1,14 @@
 # jsonjoy-builder Registry API — Architecture & Implementation Plan
 
-**Date:** 2026-06-07  
-**Status:** Final, approved for implementation  
+**Date:** 2026-06-07
+**Status:** Final, approved for implementation
 **Presented to:** @lovasoa (maintainer)
+
+---
+
+## PR description (one-paragraph summary)
+
+This PR introduces a `registry` prop on `SchemaBuilder`, `SchemaFieldsEditor`, and `SchemaJsonEditor` that lets users replace every hardcoded UI component and layout slot with their own design-system adapters, add custom JSON Schema constraint editors (e.g. a uniqueness toggle), register entirely new field types, and override built-in type editors — all without forking or patching the library. The API combines patterns from `react-jsonschema-form` (widgets/fields registry) and Material UI (slots/slotProps), delivered in 3 incremental, independently-releaseable PRs. No breaking changes to existing usage.
 
 ---
 
@@ -15,7 +21,7 @@ These two goals motivate a component extension API, inspired by `react-jsonschem
 1. **Visual indistinguishability** — the final editor should be impossible to tell apart from the user's own design system;
 2. **Custom constraint editors** — users should be able to add new JSON Schema property editors (e.g. `uniqueItems`, `x-custom:graphql-type`) without touching the library internals.
 
-This plan describes the API, the architecture, and the implementation sequence in 5 reviewable pull requests.
+This plan describes the API, the architecture, and the implementation sequence in 3 reviewable pull requests.
 
 ---
 
@@ -246,7 +252,7 @@ export interface SchemaBuilderRegistry {
 
 ## File map
 
-### New files (~35)
+### New files (~38)
 
 ```
 src/registry/
@@ -272,6 +278,12 @@ test/registry/
   widgets-registry.test.tsx
   fields-registry.test.tsx
   mui-style-registry.test.tsx
+
+stories/
+  SchemaBuilderDefault.stories.tsx                  — Default rendering
+  SchemaBuilderMuiTheme.stories.tsx                 — Custom components + MUI theme
+  SchemaBuilderCustomValidator.stories.tsx          — Unique string validator
+  SchemaBuilderCustomField.stories.tsx              — Custom field definition
 
 demo/pages/CustomRegistry.tsx
 ```
@@ -300,7 +312,7 @@ src/components/SchemaEditor/
   types/{String, Number, Array, Boolean, Object, Combinator}Editor.tsx  — useComponent
 src/components/features/
   {Infer, Validate}SchemaDialog.tsx                 — components + SchemaDialog
-README.md                                           — Plugin Registry section
+README.md                                           — Plugin Registry section (updated per PR)
 demo/pages/Index.tsx                                — Import CustomRegistry example
 ```
 
@@ -320,104 +332,199 @@ demo/pages/Index.tsx                                — Import CustomRegistry ex
 
 ---
 
-## Implementation plan: 5 releaseable pull requests
+## Storybook infrastructure (optional, can be excluded from PRs)
 
-### PR 1 — Registry infrastructure
+A minimal Storybook setup lives in three isolated locations and can be stripped from any PR by reverting a single commit. It has zero effect on production code, build pipeline, or CI.
 
-**Enables:** `SchemaBuilderRegistryProvider`, `useRegistry`, `mergeRegistry`, `defaultRegistry` as public API.  
-**Files:** 9 new, 0 changed.  
-**Release as:** `1.1.0` — early API access for advanced users.  
-**Risk:** Zero — no existing components are touched.
+### Location and scope
 
-**Tasks:**
-1. Create `src/registry/types.ts` with all public types and `@public` JSDoc annotations.
-2. Create `src/registry/mergeRegistry.ts` with per-namespace merge contracts (shallow-per-key for all namespaces).
-3. Create `src/registry/validatorsHelpers.ts` with `normalizeValidatorDefinition`, `mergeValidatorDefinitions`, `orderValidators`.
-4. Create `src/registry/defaults.ts`: default UI primitives (current `ui/*` re-exported as adapters), default layout slots, empty `validators`, `widgets`, `fields`. No imports from `types/*Editor.tsx`.
-5. Create `src/registry/SchemaBuilderRegistryContext.tsx`: `SchemaBuilderRegistryProvider` + hooks `useRegistry`, `useComponent`, `useSlot`, `useValidators`, `useWidgetRegistry`, `useFieldRegistry`. Provider merges parent + local value; `undefined` value is no-op.
-6. Create `test/registry/mergeRegistry.test.ts`: merge contracts, component override does not remove others, validator same-key override, custom validator key is added, widgets separate from fields.
-7. Create `test/registry/provider-nesting.test.tsx`: nested provider with undefined is no-op, nested provider with value merges.
-8. Export from `src/registry/index.ts`.
+| Artifact | Path | Excludable by |
+|---|---|---|
+| Config | `.storybook/main.ts`, `.storybook/preview.ts` | Reverting this commit |
+| Stories | `stories/*.stories.tsx` (4 files) | Reverting this commit |
+| Dev dependencies | `storybook`, `@storybook/react`, `@storybook/addon-essentials` | Reverting `package.json` changes |
+| npm script | `"storybook": "storybook dev -p 6006"` in `package.json` | Reverting `package.json` changes |
 
-**Check:** `npm run typecheck`, `npm test`, `npm run build`.
+### What the stories demonstrate
 
----
+| Story | What it tests |
+|---|---|
+| `SchemaBuilderDefault.stories.tsx` | Plain SchemaBuilder with default rendering (no registry) |
+| `SchemaBuilderMuiTheme.stories.tsx` | Custom `Button`/`Input`/`Switch` adapters wrapping MUI components, wrapped in `MuiThemeProvider` |
+| `SchemaBuilderCustomValidator.stories.tsx` | `validators.string.unique` — a switch that toggles `uniqueItems` on a string schema |
+| `SchemaBuilderCustomField.stories.tsx` | `fields["x-vendor:slug"]` with `baseType: "string"` and a preview component |
 
-### PR 2 — Components and slots (Goal 1 achieved)
+### Removability
 
-**Enables:** Users can replace every leaf component and layout slot, making the editor visually identical to any design system.  
-**Files:** 15 changed.  
-**Release as:** `1.2.0`.
+Every Storybook file lives in dedicated directories (`.storybook/`, `stories/`). No source file imports from `stories/` or `.storybook/`. To remove Storybook from a PR:
 
-**Tasks:**
-1. **SchemaPropertyEditor decomposition.** Split the hardcoded frame into five named slot components (`FieldFrame`, `FieldHeader`, `FieldMain`, `FieldActions`, `FieldBody`) with `data-jsonjoy-slot` marker attributes. Replace direct imports of `Input`, `Badge`, `ButtonToggle` with `useComponent()`.
-2. **useComponent in all type editors.** Replace hardcoded `ui/` imports in `StringEditor`, `NumberEditor`, `BooleanEditor`, `ArrayEditor`, `ObjectEditor`, `CombinatorEditor`.
-3. **useComponent in feature components.** Replace imports in `InferSchemaDialog`, `ValidateJsonDialog`, `SchemaJsonEditor`, `AddFieldButton`. For dialogs, use `components.SchemaDialog`, not a slot.
-4. **Public registry prop.** Add `registry?: SchemaBuilderRegistry` to `SchemaBuilder`, `SchemaFieldsEditor`, `SchemaJsonEditor` prop interfaces. Each wraps its content in `<SchemaBuilderRegistryProvider>`. Provider nesting handles the `SchemaBuilder`→`SchemaFieldsEditor` hierarchy.
-5. **Legacy path test.** Ensure `SchemaField`/`SchemaFieldList`/`SchemaPropertyRows` work through `SchemaFieldsEditor` with slot overrides.
-6. **Snapshot verification.** Snapshot diffs should show only expected marker attributes and slot wrapper boundaries. Run `npm run test:snapshots`, review diff, commit.
-7. **Tests:** `test/registry/components-registry.test.tsx`, `test/registry/slots-registry.test.tsx` — custom `components.Button` renders in place, custom `slots.FieldFrame` renders through `SchemaFieldsEditor`.
+```bash
+git revert <storybook-commit>
+git push
+```
 
-**Check:** `npm run typecheck`, `npm test`, `npm run build`.
+No source code changes, no CI config changes, no build output changes.
 
 ---
 
-### PR 3 — Validators
+## Implementation plan: 3 releaseable pull requests
 
-**Enables:** Users can add custom constraint editors (e.g. `uniqueItems`, `x-custom:some-key`) and replace default ones.  
-**Files:** 13 new + 3 changed.  
+Each PR includes its own documentation updates (README section, inline comments, story updates) and demo page additions.
+
+### PR 1 — Infrastructure + Components & Slots (Goal 1 achieved)
+
+**Enables:** Users can replace every leaf component and layout slot, making the editor visually identical to any design system. The registry provider, merge logic, and default registry are available as public API.
+
+**Files:** 9 new + 15 changed.
+
+**Release as:** `1.2.0` (skipping `1.1.0` — no benefit to releasing infrastructure without consumers).
+
+**Documentation in this PR:**
+- README: "Plugin Registry" section with `components` and `slots`/`slotProps` subsections.
+- Stories: `SchemaBuilderDefault.stories.tsx`, `SchemaBuilderMuiTheme.stories.tsx`.
+- Demo: Import `CustomRegistry.tsx` into `demo/pages/Index.tsx`.
+- All new exports carry `@public` JSDoc.
+
+**Tasks:**
+
+1. **Infrastructure foundation**
+   - `src/registry/types.ts` — all public types with `@public` JSDoc.
+   - `src/registry/mergeRegistry.ts` — per-namespace merge contracts (shallow-per-key).
+   - `src/registry/validatorsHelpers.ts` — `normalizeValidatorDefinition`, `mergeValidatorDefinitions`, `orderValidators`.
+   - `src/registry/defaults.ts` — default UI adapters, default layout slots, empty `validators`/`widgets`/`fields`. No imports from `types/*Editor.tsx`.
+   - `src/registry/SchemaBuilderRegistryContext.tsx` — provider + hooks. Merges parent + local value; `undefined` value is no-op.
+   - `test/registry/mergeRegistry.test.ts` — merge contracts, validator key replacement, widget/field separation.
+   - `test/registry/provider-nesting.test.tsx` — nested provider with undefined is no-op; nested with value merges.
+   - `src/registry/index.ts` — barrel export.
+
+2. **SchemaPropertyEditor decomposition**
+   - Split the hardcoded frame into five named slot components (`FieldFrame`, `FieldHeader`, `FieldMain`, `FieldActions`, `FieldBody`) with `data-jsonjoy-slot` marker attributes.
+   - Replace direct imports of `Input`, `Badge`, `ButtonToggle` with `useComponent()`.
+
+3. **useComponent in all type editors**
+   - `StringEditor`, `NumberEditor`, `BooleanEditor`, `ArrayEditor`, `ObjectEditor`, `CombinatorEditor` — replace `ui/` imports.
+
+4. **useComponent in feature components**
+   - `InferSchemaDialog`, `ValidateJsonDialog`, `SchemaJsonEditor`, `AddFieldButton` — replace imports. For dialogs, use `components.SchemaDialog`.
+
+5. **Public registry prop**
+   - Add `registry?: SchemaBuilderRegistry` to `SchemaBuilder`, `SchemaFieldsEditor`, `SchemaJsonEditor`.
+   - Each wraps content in `<SchemaBuilderRegistryProvider>`.
+
+6. **Legacy path verification**
+   - Ensure `SchemaField`/`SchemaFieldList`/`SchemaPropertyRows` work through `SchemaFieldsEditor` with slot overrides.
+
+7. **Snapshot verification**
+   - Run `npm run test:snapshots`, review diff (should show only marker attributes and slot wrappers), commit.
+
+8. **Tests**
+   - `test/registry/components-registry.test.tsx`, `test/registry/slots-registry.test.tsx`.
+
+9. **Documentation**
+   - README "Plugin Registry" section (`components` + `slots`).
+   - Stories for default + MUI theme.
+   - Demo page in `demo/pages/`.
+
+**Check:** `npm run typecheck`, `npm test`, `npm run check`, `npm run build`.
+
+---
+
+### PR 2 — Validators
+
+**Enables:** Users can add custom constraint editors (e.g. `uniqueItems`, `x-custom:some-key`) and replace default ones.
+
+**Files:** 13 new + 3 changed.
+
 **Release as:** `1.3.0`.
 
-**Tasks:**
-1. **Default validators.** Create `validators/string/` (`StringLengthValidator`, `StringPatternValidator`, `StringFormatValidator`, `StringEnumValidator` + `index`), `validators/number/` (`NumberRangeValidator`, `NumberMultipleOfValidator`, `NumberEnumValidator`), `validators/array/` (`ArrayItemsCountValidator`, `ArrayUniqueItemsValidator`). Each owns its `useId()` and label/input pairing.
-2. **Error filtering helper.** Near validators, `getValidatorErrors(node, paths)` returns filtered `z.ZodIssue[]`.
-3. **StringEditor refactor.** Replace hardcoded `Property` union with dynamic `Object.entries(mergedValidators)` loop. Merge `defaultStringValidators` + `useValidators("string")`. Integer: merge `defaultNumberValidators` + `useValidators("number")` + `useValidators("integer")`.
-4. **NumberEditor, ArrayEditor refactor.** Same pattern.
-5. **Test:** `test/registry/validators-registry.test.tsx` — custom validator is appended, same-key replacement, `order` controls placement, filtered errors, bare-component normalization.
+**Documentation in this PR:**
+- README: `validators` subsection with code example.
+- Stories: `SchemaBuilderCustomValidator.stories.tsx`.
 
-**Check:** `npm run typecheck`, `npm test`, `npm run build`.
+**Tasks:**
+
+1. **Default validators**
+   - `validators/string/` — `StringLengthValidator`, `StringPatternValidator`, `StringFormatValidator`, `StringEnumValidator` + `index`.
+   - `validators/number/` — `NumberRangeValidator`, `NumberMultipleOfValidator`, `NumberEnumValidator`.
+   - `validators/array/` — `ArrayItemsCountValidator`, `ArrayUniqueItemsValidator`.
+   - Each owns its `useId()` and label/input pairing.
+
+2. **Error filtering helper**
+   - `getValidatorErrors(node, paths)` returns filtered `z.ZodIssue[]`.
+
+3. **StringEditor refactor**
+   - Replace hardcoded `Property` union with dynamic `Object.entries(mergedValidators)` loop.
+   - Merge `defaultStringValidators` + `useValidators("string")`.
+   - Integer: merge `defaultNumberValidators` + `useValidators("number")` + `useValidators("integer")`.
+
+4. **NumberEditor, ArrayEditor refactor**
+   - Same dynamic pattern.
+
+5. **Tests**
+   - `test/registry/validators-registry.test.tsx` — appended validator, same-key replacement, `order`, filtered errors, bare-component normalization.
+
+6. **Documentation**
+   - README: `validators` subsection.
+   - Story: custom uniqueness validator.
+
+**Check:** `npm run typecheck`, `npm test`, `npm run check`, `npm run build`.
 
 ---
 
-### PR 4 — Custom field types and widgets (Goal 2 achieved)
+### PR 3 — Custom field types and widgets (Goal 2 achieved)
 
-**Enables:** Users can register custom field definitions that appear in Add Field UI and persist as `x-jsonjoy-editor`. Users can also override entire type editors via `widgets`.  
-**Files:** 11 changed.  
+**Enables:** Users can register custom field definitions that appear in Add Field UI and persist as `x-jsonjoy-editor`. Users can also override entire type editors via `widgets`.
+
+**Files:** 11 changed.
+
 **Release as:** `1.4.0`.
 
+**Documentation in this PR:**
+- README: `widgets` and `fields` subsections, "Integration with MUI / Chakra" external ThemeProvider pattern.
+- Stories: `SchemaBuilderCustomField.stories.tsx`.
+- Demo: complete custom field example in `demo/pages/CustomRegistry.tsx`.
+- README notes on CSS variables and custom components.
+
 **Tasks:**
-1. **EditorKey foundation.** Add `editorKey?: string` to `NewField` in `jsonSchema.ts`. Add `getSchemaEditorKey(schema)` helper in `schemaEditor.ts`. Extend `createFieldSchema` to preserve `x-jsonjoy-editor`.
-2. **TypeEditor resolution pipeline.** Rewrite the type switch in `TypeEditor.tsx`:
-   - 1) Check `props.editorKey ?? getSchemaEditorKey(schema)`;
-   - 2) If editorKey exists and `registry.fields[editorKey]` exists, render custom field;
-   - 3) Otherwise check `registry.widgets[type]`;
+
+1. **EditorKey foundation**
+   - `editorKey?: string` on `NewField` in `jsonSchema.ts`.
+   - `getSchemaEditorKey(schema)` helper in `schemaEditor.ts`.
+   - `createFieldSchema` preserves `x-jsonjoy-editor`.
+
+2. **TypeEditor resolution pipeline**
+   - 1) Check `props.editorKey ?? getSchemaEditorKey(schema)`.
+   - 2) If editorKey exists and `registry.fields[editorKey]` exists, render custom field.
+   - 3) Otherwise check `registry.widgets[type]`.
    - 4) Otherwise fall back to built-in lazy import.
    - Integer branch remains separate (`<NumberEditor integer />`).
-3. **TypeDropdown.** Accept `value: string`. Show standard options plus `registry.fields` keys. Deduplicate. Custom key collisions with built-in types are ignored with a warning.
-4. **SchemaTypeSelector.** Merge fixed `typeOptions` with `registry.fields` entries. Show `FieldDefinition.label` / `description` for custom entries.
-5. **AddFieldButton.** Track `editorKey` state. On submit, set `NewField.editorKey` and use `FieldDefinition.createSchema` (or fall back to `createFieldSchema` with `baseType`).
-6. **SchemaFieldList.** `createUpdatedField` reads `getSchemaEditorKey(property.schema)` to preserve custom field identity through rename/required/schema-edit.
-7. **getTypeColor/getTypeLabel.** Accept `string` argument with a neutral fallback for unknown keys.
-8. **Tests:** `test/registry/widgets-registry.test.tsx` — `widgets.string` replaces StringEditor; `widgets.integer` works. `test/registry/fields-registry.test.tsx` — custom field appears in type selector, creates schema with `x-jsonjoy-editor`, renders custom component.
 
-**Check:** `npm run typecheck`, `npm test`, `npm run build`.
+3. **TypeDropdown**
+   - Accept `value: string`. Show standard options plus `registry.fields` keys. Deduplicate. Collisions with built-in types are ignored (dev warning).
 
----
+4. **SchemaTypeSelector**
+   - Merge fixed `typeOptions` with `registry.fields` entries. Show `FieldDefinition.label` / `description`.
 
-### PR 5 — Documentation and demo
+5. **AddFieldButton**
+   - Track `editorKey` state. On submit, set `NewField.editorKey`. Use `FieldDefinition.createSchema` if present, else `createFieldSchema` with `baseType`.
 
-**Enables:** Users can learn the API through documented examples.  
-**Files:** README + 2 demo files.  
-**Release as:** `1.5.0` (or ship with PR 4).
+6. **SchemaFieldList**
+   - `createUpdatedField` reads `getSchemaEditorKey(property.schema)` to preserve custom field identity.
 
-**Tasks:**
-1. **README.** Insert "Plugin Registry" section between the existing "Localization" and "Supported Schema Features" sections. Include:
-   - Overview of the 5 namespaces with code examples.
-   - "Integration with MUI / Chakra" subsection showing the external ThemeProvider pattern.
-   - "CSS variables and custom components" notes.
-2. **Demo page.** Create `demo/pages/CustomRegistry.tsx` showing a complete example (custom Button/Input/Switch, custom FieldFrame slot, custom unique validator, custom field definition). Import into `demo/pages/Index.tsx` (no router).
+7. **getTypeColor / getTypeLabel**
+   - Accept `string` argument with neutral fallback for unknown keys.
 
-**Check:** `npm run typecheck`, `npm test`, `npm run build`. Demo runs without errors.
+8. **Tests**
+   - `test/registry/widgets-registry.test.tsx` — `widgets.string` replaces StringEditor; `widgets.integer` works.
+   - `test/registry/fields-registry.test.tsx` — custom field appears in type selector, creates schema with `x-jsonjoy-editor`, renders custom component.
+
+9. **Documentation**
+   - Full README "Plugin Registry" section (all 5 namespaces).
+   - Story for custom field.
+   - Complete demo page with custom validators, fields, and MUI integration example.
+   - "CSS variables and custom components" note.
+
+**Check:** `npm run typecheck`, `npm test`, `npm run check`, `npm run build`.
 
 ---
 
