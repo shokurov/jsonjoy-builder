@@ -1,0 +1,151 @@
+image: node:25-alpine
+
+variables:
+  DO_NOT_TRACK: 1
+  HUSKY: 0
+  NPM_CACHE_DIR: .npm
+
+workflow:
+  rules:
+    # Avoid duplicate pipelines in merges
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        SOURCE_BRANCH: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    # Skip pipeline on version bump commits
+    - if: $CI_COMMIT_TITLE =~ /^Publish v/
+      when: never
+    # Run on branch commits
+    - if: $CI_COMMIT_BRANCH
+      variables:
+        SOURCE_BRANCH: $CI_COMMIT_BRANCH
+    - if: $CI_PIPELINE_SOURCE =~ /web/
+      variables:
+        SOURCE_BRANCH: $CI_COMMIT_BRANCH
+
+stages:
+  - build
+  - test
+  - deploy
+  - pages
+
+# ── Build ──────────────────────────────────────────────
+build:
+  stage: build
+  cache:
+    paths:
+      - $NPM_CACHE_DIR/
+    key: "$CI_COMMIT_BRANCH-build-cache"
+    policy: pull-push
+  before_script:
+    - npm ci --cache $NPM_CACHE_DIR --prefer-offline --no-fund
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+
+# ── Test ───────────────────────────────────────────────
+test:
+  stage: test
+  cache:
+    paths:
+      - $NPM_CACHE_DIR/
+    key: "$CI_COMMIT_BRANCH-build-cache"
+    policy: pull
+  needs:
+    - job: build
+      artifacts: true
+  before_script:
+    - npm ci --cache $NPM_CACHE_DIR --prefer-offline --no-fund
+  script:
+    - npm run check
+    - npm run typecheck
+    - npm test
+
+# ── Lint (lightweight, no build needed) ────────────────
+lint:
+  stage: test
+  cache:
+    paths:
+      - $NPM_CACHE_DIR/
+    key: "$CI_COMMIT_BRANCH-build-cache"
+    policy: pull
+  before_script:
+    - npm ci --cache $NPM_CACHE_DIR --prefer-offline --no-fund
+  script:
+    - npm run check
+  needs: []
+
+# ── Publish to NPM ─────────────────────────────────────
+publish:
+  image: timbru31/node-alpine-git:25
+  stage: deploy
+  cache:
+    paths:
+      - $NPM_CACHE_DIR/
+    key: "$CI_COMMIT_BRANCH-build-cache"
+    policy: pull
+  needs:
+    - job: test
+      artifacts: false
+    - job: build
+      artifacts: true
+  rules:
+    # main — automatic publish on every push
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    # Feature branches — manual prerelease publish
+    - if: '$CI_COMMIT_BRANCH != "main"'
+      when: manual
+      allow_failure: true
+  before_script:
+    - apk add --no-cache git
+    - git config user.email "gitlab-runner@rapidsoft.ru"
+    - git config user.name "GitLab Runner"
+    - echo "Source branch ${SOURCE_BRANCH}"
+    - git remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git fetch origin $SOURCE_BRANCH
+    - git switch $SOURCE_BRANCH
+    - npm ci --cache $NPM_CACHE_DIR --prefer-offline --no-fund
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        # main — bump minor, publish, commit back
+        npm version minor --commit-hooks=false
+        npm publish --access public
+        git add .
+        git commit --no-verify -m "Publish v$(node -p 'require("./package.json").version')"
+        git push origin $SOURCE_BRANCH -o ci.skip
+      else
+        # Feature branches — ephemeral prerelease, no git commit
+        npm version prerelease \
+          --preid="${CI_COMMIT_REF_SLUG}.${CI_PIPELINE_IID}" \
+          --no-git-tag-version --commit-hooks=false
+        npm publish --access public
+      fi
+
+# ── Demo site (GitLab Pages) ───────────────────────────
+pages:
+  stage: pages
+  cache:
+    paths:
+      - $NPM_CACHE_DIR/
+    key: "$CI_COMMIT_BRANCH-build-cache"
+    policy: pull
+  needs:
+    - job: build
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH == 'main'
+      when: on_success
+    - when: manual
+      allow_failure: true
+  before_script:
+    - npm ci --cache $NPM_CACHE_DIR --prefer-offline --no-fund
+  script:
+    - npm run build:demo
+    - mv dist-demo/ public/
+  artifacts:
+    paths:
+      - public/

@@ -2,23 +2,81 @@ name: Run Tests
 
 on: [push, pull_request]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  test:
-    name: Run Tests
+  build:
+    name: Build library
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Use Node.js 24.x
+      - name: Setup Node.js 24.x
         uses: actions/setup-node@v6
         with:
           node-version: '24.x'
-      - run: npm install
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          cache: 'npm'
+      - run: npm ci
       - name: Check formatting and linting
         run: npm run check
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          cache: 'npm'
+      - run: npm ci
       - name: Type check
         run: npm run typecheck
+
+  test:
+    name: Run Tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          cache: 'npm'
+      - run: npm ci
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
       - name: Run unit tests
         run: npm test
+
   codeql-scan:
     name: CodeQL Security Scan
     runs-on: ubuntu-latest
@@ -29,12 +87,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-      
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: javascript
-      
-      # 3. Perform Analysis
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
